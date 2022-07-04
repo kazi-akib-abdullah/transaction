@@ -1,16 +1,15 @@
 import datetime
-import time
+import decimal
 from datetime import datetime
 
-from django.shortcuts import render
+import schedule
+from django.contrib import messages
 from django.http import HttpResponseRedirect
+from django.shortcuts import render
+from pytz import UTC
+
 from .forms import Payment
 from .models import customer
-from django.db.models import F
-import decimal
-from django.db import transaction
-from django.contrib import messages
-from django.core.exceptions import ObjectDoesNotExist
 
 
 def process_payment(request):
@@ -25,55 +24,45 @@ def process_payment(request):
             z = decimal.Decimal(form.cleaned_data['amount'])
             PaymentDateTime = form.cleaned_data['split_date_time_field']
             if PaymentDateTime:
-                now = datetime.now()
+                now = datetime.utcnow().replace(tzinfo=UTC)
+                sec = PaymentDateTime - now
+                # hour_format = str(PaymentDateTime.hour) + ":" + str(PaymentDateTime.minute)
+                # week_day = (calendar.day_name[PaymentDateTime.weekday()]).lower().strip('\"')
                 sec = (PaymentDateTime.timestamp() - now.timestamp())
-                time.sleep(sec)
+
                 if customer.objects.filter(name=x).exists() and customer.objects.filter(name=y).exists():
-                    payor = customer.objects.select_for_update().get(name=x)
-                    payee = customer.objects.select_for_update().get(name=y)
-
-                    with transaction.atomic():
-                        payor.balance -= z
-                        payor.save()
-
-                        payee.balance += z
-                        payee.save()
-
-                        # customer.objects.filter(name=x).update(balance=F('balance') - z)
-                        # customer.objects.filter(name=y).update(balance=F('balance') + z)
-                        messages.success(request, 'Congratulations, Transaction Successful...!')  # ignored
-
-                        return HttpResponseRedirect('/')
+                    schedule.every(int(sec.seconds)).seconds.do(job, x, y, z)  # seconds
+                    messages.success(request, 'Congratulations, Transaction Successful...!')
+                    schedule.every().sunday.at("22:22").do(job, x, y, 100)  # weekday
+                    all_jobs = schedule.get_jobs()
+                    print(all_jobs)
+                    return HttpResponseRedirect('/')
                 else:
                     messages.warning(request, 'Invalid Information, Transaction Failed...!')  # recorded
                     return HttpResponseRedirect('/')
             else:
-
                 if customer.objects.filter(name=x).exists() and customer.objects.filter(name=y).exists():
-                    payor = customer.objects.select_for_update().get(name=x)
-                    payee = customer.objects.select_for_update().get(name=y)
+                    job(x, y, z)
+                    messages.success(request, 'Congratulations, Transaction Successful...!')  # ignored
 
-                    with transaction.atomic():
-                        payor.balance -= z
-                        payor.save()
-
-                        payee.balance += z
-                        payee.save()
-
-                        # customer.objects.filter(name=x).update(balance=F('balance') - z)
-                        # customer.objects.filter(name=y).update(balance=F('balance') + z)
-                        messages.success(request, 'Congratulations, Transaction Successful...!')  # ignored
-
-                        return HttpResponseRedirect('/')
+                    return HttpResponseRedirect('/')
                 else:
                     messages.warning(request, 'Invalid Information, Transaction Failed...!')  # recorded
                     return HttpResponseRedirect('/')
         else:
             print("Invalid")
-
-        # customerData = customer.objects.all()
-
     else:
         form = Payment()
-
     return render(request, 'index.html', {'form': form})
+
+
+def job(x, y, z):
+    print(x, y, z)
+    # payor = customer.objects.select_for_update().get(name=x)
+    # payee = customer.objects.select_for_update().get(name=y)
+    # with transaction.atomic():
+    #     payor.balance -= z
+    #     payor.save()
+    #     payee.balance += z
+    #     payee.save()
+    #     print("successfull")
